@@ -6,7 +6,7 @@
 Message: {'lead_id': 'lead_789052', 'conversation_id': 'conv_4da3e5', 'fname': 'Alice', 'lname': 'Lee', 'email': 'alice.lee@example.com', 'vehicle': '2020 Nissan Leaf SV', 'notes': 'Wants to confirm if the vehicle has remote start', 'created_at': '2026-02-12T16:33:38.394236'}
 ```
 
-## Setting Up a Python `.venv`
+## Set up `.venv`
 
 ```bash
 python -m venv .venv
