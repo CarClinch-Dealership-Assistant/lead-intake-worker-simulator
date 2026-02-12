@@ -30,7 +30,7 @@ def get_db_connection():
 
 
 def insert_lead(conn):
-    lead_id = f"{uuid.uuid4().hex[:3]}"
+    lead_id = f"{random.randint(0, 999):03d}"
     fname = random.choice(["John", "Alice", "Maria", "David"])
     lname = random.choice(["Doe", "Smith", "Lee", "Patel"])
     email = f"{fname.lower()}.{lname.lower()}@example.com"
@@ -163,7 +163,7 @@ def insert_lead(conn):
 
 
 def create_conversation(conn, lead_id):
-    conversation_id = f"{uuid.uuid4().hex[:3]}"
+    conversation_id = f"{random.randint(0, 999):03d}"
     now = datetime.now()
 
     with conn.cursor() as cur:
@@ -204,7 +204,7 @@ def simulate_worker():
             lead = insert_lead(conn)
             
             # For testing, we can generate a conversation ID even if we aren't inserting into the DB, since the Service Bus message will include it and the downstream consumer can handle it accordingly. In production, we would want to ensure the conversation is created in the DB first.
-            conversation_id = f"{uuid.uuid4().hex[:3]}"
+            conversation_id = f"{random.randint(0, 999):03d}"
 
             # Create conversation if needed
             # conversation_id = None
