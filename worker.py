@@ -22,7 +22,14 @@ load_dotenv()
 # For local development, we use the Azure Service Bus emulator connection string
 SERVICE_BUS_CONNECTION_STR = os.getenv("SERVICE_BUS_CONNECTION_STRING")
 QUEUE_NAME = "leads"
+
+# How often to generate a new lead (in seconds)
 INTERVAL_SECONDS = int(os.getenv("INTERVAL")) 
+
+# Ratio of notes that include PII (between 0 and 1)
+PII_RATIO = float(os.getenv("NOTES_PII_RATIO", "0.5"))
+PII_RATIO = max(0.0, min(1.0, PII_RATIO)) 
+
 
 VEHICLE_OPTIONS = {
     "Economy / Compact": [
@@ -207,73 +214,88 @@ def generate_vehicle():
     }
 
 def generate_notes(fname, lname, email, phone):
-    # Customer-submitted, natural-language contact form messages
     normal_notes = [
         "Hi, I'm just checking if this vehicle is still available.",
-        "Can someone tell me what financing options you offer?",
-        "I'm thinking about trading in my current car and want to know the process.",
-        "I'd like to book a test drive sometime this week.",
-        "I'm comparing this model with a few others and need more details.",
-        "Can you tell me about the maintenance history?",
-        "Has this vehicle ever been in an accident?",
-        "What would be the total price including all fees?",
-        "Is the manufacturer warranty still active?",
-        "What would monthly payments look like?",
-        "Do you have more interior photos or maybe a video?",
-        "Do you offer delivery? I'm not in the same city.",
-        "Is the price negotiable at all?",
-        "What color options do you have?",
-        "Does this model support Apple CarPlay or Android Auto?",
-        "Are winter tires included?",
-        "Do you accept cryptocurrency for payment?",
-        "I'm worried about my credit score — can I still get approved?",
-        "Do you offer extended warranty packages?",
-        "Can I put down a deposit to hold the vehicle?",
-        "Do you know anything about the previous owner?",
-        "Can this vehicle tow a small trailer?",
-        "Any idea what insurance might cost?",
-        "Can I bring my mechanic to check it out?",
-        "I'm looking for something safe for my family — how does this rate?",
-        "Do you offer student or military discounts?",
-        "I'm upgrading from my current car — any recommendations?",
-        "What's the difference between the hybrid and gas versions?",
-        "Does this model have remote start?",
-        "I'm hoping to buy quickly — can we prep paperwork ahead of time?",
+        "Can you tell me what financing options are available for this car?",
+        "I'm considering trading in my current vehicle — can you estimate its value toward this one?",
+        "I'd like to schedule a test drive for this car sometime this week.",
+        "I'm comparing this model with a few others — can you share more details?",
+        "Can you provide the full maintenance history for this vehicle?",
+        "Has this specific vehicle ever been in an accident?",
+        "What would be the total out-the-door price for this car?",
+        "Is the manufacturer warranty still active on this vehicle?",
+        "What would monthly payments look like for this car?",
+        "Do you have additional interior photos or a video walkthrough of this vehicle?",
+        "Do you offer delivery for this vehicle? I'm not located nearby.",
+        "Is the price on this listing negotiable?",
+        "What color options are available for this model?",
+        "Does this vehicle support Apple CarPlay or Android Auto?",
+        "Are winter tires included with this car?",
+        "Do you accept cryptocurrency for purchasing this vehicle?",
+        "My credit isn't perfect — can I still get approved for this car?",
+        "Do you offer extended warranty packages for this vehicle?",
+        "Can I put down a deposit to hold this car?",
+        "Do you know anything about the previous owner of this vehicle?",
+        "Is this vehicle capable of towing a small trailer?",
+        "Do you know what insurance might cost for this model?",
+        "Can I bring my mechanic to inspect this vehicle?",
+        "I'm looking for something safe for my family — how does this model rate?",
+        "Do you offer student or military discounts on this vehicle?",
+        "I'm upgrading from my current car — would this be a good fit?",
+        "What's the difference between the hybrid and gas versions of this model?",
+        "Does this vehicle come with remote start?",
+        "I'm hoping to buy quickly — can we prepare the paperwork for this car ahead of time?",
     ]
 
-    # Synthetic PII not self-referential to the lead
+    # Synthetic PII 
     synthetic_pii = [
-        f"My other email is test.user{random.randint(10,99)}@example.com if that's easier.",
-        f"You can call me back at 555-{random.randint(100,999)}-{random.randint(1000,9999)}.",
-        f"My temporary address is {random.randint(10,999)} Maple Street.",
-        f"I might register the car under my partner's name, Alex Johnson.",
-        f"My trade-in VIN is 1HGCM82633A{random.randint(100000,999999)}.",
-        f"My driver's license number is D{random.randint(100,999)}-{random.randint(100,999)}-{random.randint(100,999)}.",
-        f"My plate number is ABCD {random.randint(100,999)} if you need it for insurance.",
-        f"Please send the paperwork to temp.email{random.randint(1,9)}@mailinator.com.",
+        f"My other email is test.user{random.randint(10,99)}@example.com if you need to send more details about this car.",
+        f"You can call me back at 555-{random.randint(100,999)}-{random.randint(1000,9999)} about this vehicle.",
+        f"My temporary address is {random.randint(10,999)} Maple Street if you need it for the quote.",
+        f"I might register the car under my partner's name, Alex Johnson — is that okay for this vehicle?",
+        f"My trade-in VIN is 1HGCM82633A{random.randint(100000,999999)} — can you estimate its value toward this car?",
+        f"My driver's license number is D{random.randint(100,999)}-{random.randint(100,999)}-{random.randint(100,999)} if needed for the test drive.",
+        f"My plate number is ABCD {random.randint(100,999)} if you need it for insurance on this vehicle.",
+        f"Please send the paperwork for this car to temp.email{random.randint(1,9)}@mailinator.com.",
     ]
 
-    # Lead-specific PII contamination (customer re-entering their own info)
+    # Lead-specific PII
     self_pii_notes = [
-        f"Hi, it's {fname} {lname}. Just wanted to follow up.",
-        f"You can email me at {email} with the details.",
-        f"My phone number is {phone} if you need to reach me.",
-        f"Hey, this is {fname}. Can someone call me back?",
-        f"I prefer texts — {phone} is the best number.",
-        f"Please send the quote to {email}.",
-        f"I'm {fname} {lname}, just checking on the status of my inquiry.",
-        f"Can you confirm the appointment time? You can reach me at {phone}.",
-        f"Feel free to send photos or documents to {email}.",
+        f"Hi, it's {fname} {lname}. I'm following up about this vehicle.",
+        f"You can email me at {email} with more details about this car.",
+        f"My phone number is {phone} if you need to reach me about this vehicle.",
+        f"Hey, this is {fname}. Can someone call me back about this car?",
+        f"I prefer texts — {phone} is the best number if you have updates on this vehicle.",
+        f"Please send the full quote for this car to {email}.",
+        f"I'm {fname} {lname}, just checking on the status of my inquiry about this vehicle.",
+        f"Can you confirm the appointment time for viewing this car? You can reach me at {phone}.",
+        f"Feel free to send photos or documents for this vehicle to {email}.",
     ]
 
-    # Weighted mix: 50% normal, 10% synthetic PII, 40% self-referential PII
-    weighted_pool = (
-        normal_notes * 5 +
-        synthetic_pii * 1 +
-        self_pii_notes * 4
-    )
+    pii_pool = synthetic_pii + self_pii_notes
+    weighted_pool = []
+
+    # Number of entries to generate for each category
+    # Using len(normal_notes) keeps the distribution stable
+    total = len(normal_notes)
+
+    normal_count = int(total * (1 - PII_RATIO))
+    pii_count = int(total * PII_RATIO)
+
+    # Add normal-only notes
+    weighted_pool.extend(random.sample(normal_notes, normal_count))
+
+    # Add normal+PII notes
+    for note in random.sample(normal_notes, pii_count):
+        weighted_pool.append(note + " " + random.choice(pii_pool))
+
+    # Fallback if ratio is weird (eg, 0 or 1)
+    if not weighted_pool:
+        weighted_pool.append(random.choice(normal_notes))
 
     return random.choice(weighted_pool)
+
+
 
 def insert_lead(conn):
     lead_id = random.randint(1, 999)
