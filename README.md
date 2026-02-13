@@ -2,8 +2,39 @@
 
 ## Example Message
 
-```bash
-Message: {'lead_id': 73366, 'conversation_id': '410', 'fname': 'David', 'lname': 'Patel', 'email': 'david.patel@example.com', 'vehicle': {'vehicle_id': 382591, 'dealer_id': 148, 'stock_id': 'STK-8345', 'status': 0, 'year': 2013, 'vin': '6B7C7237-7D98-4DC', 'make': 'Nissan', 'model': 'Altima', 'trim': 'S', 'mileage': '179224 km', 'transmission': 'Manual', 'comments': 'Fully loaded with premium package.', 'category': 'Budget / Older Vehicles'}, 'notes': 'Asked about trade-in', 'created_at': '2026-02-13T11:01:32.083453'}
+```JSON
+{
+    'lead_id': 837810, 
+    'conversation_id': '707', 
+    'fname': 'Maria', 
+    'lname': 'Patel', 
+    'email': 'maria.patel@example.com', 
+    'vehicle': 
+        {
+            'dealership': 
+                {
+                    'name': 'Regina Premium Autos', 
+                    'email': 'contact@reginapremiumautos.com', 
+                    'phone': '555-666-1479', 
+                    'address1': '746 Main St', 
+                    'address2': '', 
+                    'city': 'Regina', 
+                    'province': 'BC', 
+                    'postal_code': 'A7E 4G9'
+                },
+            'status': 0, 
+            'year': 2014, 
+            'make': 'Mazda', 
+            'model': 'CX-5', 
+            'trim': 'Signature', 
+            'mileage': '147060 km', 
+            'transmission': 'CVT', 
+            'comments': 'Excellent condition.', 
+            'category': 'SUVs / Crossovers'
+        }, 
+    'notes': 'Wants to reserve the vehicle with a deposit', 
+    'created_at': '2026-02-13T11:12:33.522217'
+}
 ```
 
 ## Set up `.venv`

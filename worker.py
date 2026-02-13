@@ -125,33 +125,75 @@ VEHICLE_OPTIONS = {
     ],
 }
 
+DEALERSHIP_NAMES = [
+    "AutoNation {city}",
+    "{make} of {city}",
+    "{city} Auto Mall",
+    "{province} Motor Group",
+    "{make} Centre {city}",
+    "{city} Premium Autos",
+    "{make} & More",
+    "{city} Car House",
+    "{province} Auto Plaza",
+    "{make} Direct {city}",
+]
+
+CITIES = [
+    "Toronto", "Ottawa", "Vancouver", "Calgary", "Edmonton",
+    "Montreal", "Winnipeg", "Halifax", "Regina", "Saskatoon"
+]
+
+PROVINCES = [
+    "ON", "BC", "AB", "QC", "MB", "NS", "SK"
+]
+
 
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
+
+def generate_dealership(dealer_id, make):
+    city = random.choice(CITIES)
+    province = random.choice(PROVINCES)
+
+    name_template = random.choice(DEALERSHIP_NAMES)
+    dealership_name = name_template.format(make=make, city=city, province=province)
+
+    return {
+        "name": dealership_name,
+        "email": f"contact@{dealership_name.replace(' ', '').lower()}.com",
+        "phone": f"555-{random.randint(100,999)}-{random.randint(1000,9999)}",
+        "address1": f"{random.randint(10,999)} Main St",
+        "address2": "",
+        "city": city,
+        "province": province,
+        "postal_code": f"{random.choice('ABCEGHJ')}{random.randint(1,9)}{random.choice('ABCEGHJ')} {random.randint(1,9)}{random.choice('ABCEGHJ')}{random.randint(1,9)}"
+    }
 
 def generate_vehicle():
     # Pick a random category, then a random vehicle tuple
     category = random.choice(list(VEHICLE_OPTIONS.keys()))
     make, model, trim = random.choice(VEHICLE_OPTIONS[category])
 
-    vehicle_id = random.randint(1, 999999)
     dealer_id = random.randint(1, 200)
 
+    # Mock dealership lookup
+    dealership = generate_dealership(dealer_id, make)
+    
     year = random.randint(2000, 2026)
 
     return {
-        "vehicle_id": vehicle_id,
-        "dealer_id": dealer_id,
-        "stock_id": f"STK-{random.randint(1000,9999)}",
-        "status": random.choice([0, 1]),  # new / used
+        "dealership": dealership,
+        "status": random.choice([0, 1]),  # new/used
         "year": year,
-        "vin": str(uuid.uuid4())[:17].upper(),
         "make": make,
         "model": model,
         "trim": trim,
         "mileage": f"{random.randint(20_000, 250_000)} km",
         "transmission": random.choice(["Automatic", "Manual", "CVT"]),
         "comments": random.choice([
+            "",
+            "",
+            "",
             "Clean CarFax, one owner.",
             "Dealer maintained.",
             "Low mileage for the year.",
@@ -161,7 +203,7 @@ def generate_vehicle():
             "Fully loaded with premium package.",
             "Recently serviced and detailed.",
         ]),
-        "category": category  # optional but nice for debugging
+        "category": category  
     }
 
 
