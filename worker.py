@@ -387,6 +387,9 @@ def simulate_worker():
                 vehicle = lead["vehicle"]
                 dealership = vehicle["dealership"]
 
+                # Remove dealership from vehicle before publishing
+                vehicle_without_dealer = {k: v for k, v in vehicle.items() if k != "dealership"}
+
                 payload = {
                     "lead": {
                         "id": lead["id"],
@@ -399,10 +402,11 @@ def simulate_worker():
                         "notes": lead["notes"],
                         "timestamp": lead["timestamp"]
                     },
-                    "vehicle": vehicle,
+                    "vehicle": vehicle_without_dealer,
                     "dealership": dealership,
-                    "conversation_id": conversation_id
+                    "conversationId": conversation_id
                 }
+
 
                 # payload = {
                 #     "lead_id": lead["id"],

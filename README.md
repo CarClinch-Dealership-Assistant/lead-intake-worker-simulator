@@ -17,17 +17,6 @@
     },
     "vehicle": {
         "id": "vehicle_599cae2001",
-        "dealership": {
-        "id": "dealer_82f7ad2124",
-        "name": "Kia Direct Montreal",
-        "email": "contact@kiadirectmontreal.com",
-        "phone": "555-335-9346",
-        "address1": "376 Main St",
-        "address2": "",
-        "city": "Montreal",
-        "province": "NS",
-        "postal_code": "B9B 8H3"
-        },
         "status": 1,
         "year": 2020,
         "make": "Kia",
@@ -48,7 +37,7 @@
         "province": "NS",
         "postal_code": "B9B 8H3"
     },
-    "conversation_id": "conv_66e8be1f55"
+    "conversationId": "conv_66e8be1f55"
 }
 ```
 
