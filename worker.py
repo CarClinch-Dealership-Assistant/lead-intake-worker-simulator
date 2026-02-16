@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 import random
@@ -154,11 +155,14 @@ PROVINCES = [
     "ON", "BC", "AB", "QC", "MB", "NS", "SK"
 ]
 
+def new_id(prefix):
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-def generate_dealership(dealer_id, make):
+def generate_dealership(make):
+    dealer_id = new_id("dealer")
     city = random.choice(CITIES)
     province = random.choice(PROVINCES)
 
@@ -166,6 +170,7 @@ def generate_dealership(dealer_id, make):
     dealership_name = name_template.format(make=make, city=city, province=province)
 
     return {
+        "id": dealer_id,
         "name": dealership_name,
         "email": f"contact@{dealership_name.replace(' ', '').lower()}.com",
         "phone": f"555-{random.randint(100,999)}-{random.randint(1000,9999)}",
@@ -181,14 +186,13 @@ def generate_vehicle():
     category = random.choice(list(VEHICLE_OPTIONS.keys()))
     make, model, trim = random.choice(VEHICLE_OPTIONS[category])
 
-    dealer_id = random.randint(1, 200)
-
     # Mock dealership lookup
-    dealership = generate_dealership(dealer_id, make)
+    dealership = generate_dealership(make)
     
     year = random.randint(2000, 2026)
 
     return {
+        "id": new_id("vehicle"),
         "dealership": dealership,
         "status": random.choice([0, 1]),  # new/used
         "year": year,
@@ -209,8 +213,7 @@ def generate_vehicle():
             "Minor cosmetic wear.",
             "Fully loaded with premium package.",
             "Recently serviced and detailed.",
-        ]),
-        "category": category  
+        ])
     }
 
 def generate_notes(fname, lname, email, phone):
@@ -295,21 +298,15 @@ def generate_notes(fname, lname, email, phone):
 
     return random.choice(weighted_pool)
 
-
-
-def insert_lead(conn):
-    lead_id = random.randint(1, 999)
+def generate_lead(conn):
+    lead_id = new_id("lead")
     fname = random.choice(["John", "Alice", "Maria", "David"])
     lname = random.choice(["Doe", "Smith", "Lee", "Patel"])
     email = f"{fname.lower()}.{lname.lower()}@example.com"
-    phone = "123-456-7890"
+    phone = f"555-{random.randint(100,999)}-{random.randint(1000,9999)}"
     notes = generate_notes(fname, lname, email, phone)
     # For testing, we can generate a vehicle object even if we aren't inserting into the DB, since the Service Bus message will include it and the downstream consumer can handle it accordingly. In production, we would want to ensure the vehicle is created in the DB first and we have a valid vehicle_id to reference.
     vehicle = generate_vehicle()
-    
-    status = 0 # New lead
-    wants_email = random.choice([True, False])
-    created_at = datetime.now()
 
     # with conn.cursor() as cur:
     #     cur.execute(
@@ -323,22 +320,22 @@ def insert_lead(conn):
 
     # print(f"[DB] Inserted lead: {lead_id}")
     return {
-        "lead_id": lead_id,
+        "id": lead_id,
         "fname": fname,
         "lname": lname,
         "email": email,
         "phone": phone,
-        "status": status,
+        "status": 0,
+        "wants_email": random.choice([True, False]),
         "vehicle": vehicle,
-        "wants_email": wants_email,
         "notes": notes,
-        "created_at": created_at.isoformat(),
+        "timestamp": datetime.now().isoformat(),
     }
 
 
 def create_conversation(conn, lead_id):
     conversation_id = random.randint(1, 999)
-    now = datetime.now()
+    now = datetime.now().isoformat()
 
     with conn.cursor() as cur:
         cur.execute(
@@ -359,10 +356,10 @@ def publish_to_service_bus(payload):
     sender = client.get_queue_sender(queue_name=QUEUE_NAME)
 
     with sender:
-        message = ServiceBusMessage(str(payload))
+        message = ServiceBusMessage(json.dumps(payload))
         sender.send_messages(message)
 
-    print(f"[SB] Published message for lead: {payload['lead_id']}")
+    print(f"[SB] Published message for lead: {payload['lead']['id']}")
 
 
 def simulate_worker():
@@ -374,11 +371,11 @@ def simulate_worker():
             conn = None
             # conn = get_db_connection()
 
-            # Insert lead
-            lead = insert_lead(conn)
+            # generate lead
+            lead = generate_lead(conn)
             
             # For testing, we can generate a conversation ID even if we aren't inserting into the DB, since the Service Bus message will include it and the downstream consumer can handle it accordingly. In production, we would want to ensure the conversation is created in the DB first.
-            conversation_id = random.randint(1, 999) if lead["wants_email"] else None
+            conversation_id = new_id("conv") if lead["wants_email"] else None
 
             # Create conversation if needed
             # conversation_id = None
@@ -387,17 +384,37 @@ def simulate_worker():
 
             # Publish to Service Bus if we have a conversation ID (indicating the lead wants emails and we want to process it)
             if conversation_id:
-                publish_payload = {
-                    "lead_id": lead["lead_id"],
-                    "conversation_id": conversation_id,
-                    "fname": lead["fname"],
-                    "lname": lead["lname"],
-                    "email": lead["email"],
-                    "vehicle": lead["vehicle"],
-                    "notes": lead["notes"],
-                    "created_at": lead["created_at"],
+                vehicle = lead["vehicle"]
+                dealership = vehicle["dealership"]
+
+                payload = {
+                    "lead": {
+                        "id": lead["id"],
+                        "fname": lead["fname"],
+                        "lname": lead["lname"],
+                        "email": lead["email"],
+                        "phone": lead["phone"],
+                        "status": lead["status"],
+                        "wants_email": lead["wants_email"],
+                        "notes": lead["notes"],
+                        "timestamp": lead["timestamp"]
+                    },
+                    "vehicle": vehicle,
+                    "dealership": dealership,
+                    "conversation_id": conversation_id
                 }
-                publish_to_service_bus(publish_payload)
+
+                # payload = {
+                #     "lead_id": lead["id"],
+                #     "conversation_id": conversation_id,
+                #     "fname": lead["fname"],
+                #     "lname": lead["lname"],
+                #     "email": lead["email"],
+                #     "vehicle": lead["vehicle"],
+                #     "notes": lead["notes"],
+                #     "created_at": lead["timestamp"],
+                # }
+                publish_to_service_bus(payload)
 
             #conn.close()
 

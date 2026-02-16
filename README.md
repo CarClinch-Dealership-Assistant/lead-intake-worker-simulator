@@ -4,34 +4,51 @@
 
 ```json
 {
-    "lead_id": 607,
-    "conversation_id": 433,
-    "fname": "Alice",
-    "lname": "Lee",
-    "email": "alice.lee@example.com",
+    "lead": {
+        "id": "lead_c47f91a953",
+        "fname": "Alice",
+        "lname": "Smith",
+        "email": "alice.smith@example.com",
+        "phone": "555-307-8655",
+        "status": 0,
+        "wants_email": true,
+        "notes": "My credit isn't perfect — can I still get approved for this car?",
+        "timestamp": "2026-02-16T10:30:54.198014"
+    },
     "vehicle": {
+        "id": "vehicle_599cae2001",
         "dealership": {
-            "name": "Volkswagen Direct Montreal",
-            "email": "contact@volkswagendirectmontreal.com",
-            "phone": "555-708-2405",
-            "address1": "295 Main St",
-            "address2": "",
-            "city": "Montreal",
-            "province": "SK",
-            "postal_code": "A7J 1H8"
+        "id": "dealer_82f7ad2124",
+        "name": "Kia Direct Montreal",
+        "email": "contact@kiadirectmontreal.com",
+        "phone": "555-335-9346",
+        "address1": "376 Main St",
+        "address2": "",
+        "city": "Montreal",
+        "province": "NS",
+        "postal_code": "B9B 8H3"
         },
         "status": 1,
-        "year": 2022,
-        "make": "Volkswagen",
-        "model": "Jetta",
-        "trim": "Highline",
-        "mileage": "30415 km",
-        "transmission": "CVT",
-        "comments": "",
-        "category": "Sedans"
+        "year": 2020,
+        "make": "Kia",
+        "model": "Stinger",
+        "trim": "GT-Line",
+        "mileage": "146612 km",
+        "transmission": "Manual",
+        "comments": "Low mileage for the year."
     },
-    "notes": "Can you confirm the appointment time? You can reach me at 123-456-7890.",
-    "created_at": "2026-02-13T11:41:55.626861"
+    "dealership": {
+        "id": "dealer_82f7ad2124",
+        "name": "Kia Direct Montreal",
+        "email": "contact@kiadirectmontreal.com",
+        "phone": "555-335-9346",
+        "address1": "376 Main St",
+        "address2": "",
+        "city": "Montreal",
+        "province": "NS",
+        "postal_code": "B9B 8H3"
+    },
+    "conversation_id": "conv_66e8be1f55"
 }
 ```
 
@@ -118,7 +135,7 @@ This launches:
 With the emulator running, start the worker:
 
 ```bash
-python worker.py
+py worker.py
 ```
 
 You should see:
@@ -139,7 +156,13 @@ The worker will continue publishing new leads every `INTERVAL` seconds.
 Use the included `peek.py` script to inspect messages without consuming them:
 
 ```bash
-python peek.py
+py peek.py
 ```
 
 This script connects to the emulator and prints the next batch of messages currently in the `leads` queue.
+
+## Purge the queue 
+
+```bash
+py purge.py
+```
