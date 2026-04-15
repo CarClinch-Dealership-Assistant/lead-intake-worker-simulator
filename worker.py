@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 import random
 from datetime import datetime
@@ -11,18 +10,42 @@ from dotenv import load_dotenv
 # load environment variables from .env file
 load_dotenv()
 
-
 # for local development, we use the service bus emulator connection string
 SERVICE_BUS_CONNECTION_STR = os.getenv("SERVICE_BUS_CONNECTION_STRING")
+USER_EMAIL = os.getenv("USER_EMAIL")
 QUEUE_NAME = "leads"
 
-# how often to generate a new lead (in seconds)
-INTERVAL_SECONDS = int(os.getenv("INTERVAL")) 
-
-# ratio of notes that include PII (between 0 and 1)
-PII_RATIO = float(os.getenv("NOTES_PII_RATIO", "0.5"))
-PII_RATIO = max(0.0, min(1.0, PII_RATIO)) 
-
+EDGE_CASES = [
+    # Time Edge Cases (Exact vs. Fuzzy vs. Invalid)
+    "I'd like to test drive it tomorrow at 4:30 PM.",
+    "I can swing by around 2 on Friday.",
+    "Are you free tomorrow morning?",
+    "I'll be there between 3 and 5 PM on April 20th.",
+    
+    # The "Max 7 Dates" Limit
+    "What do you have open sometime this month?",
+    "I'm out of town, but I can come in anytime after May 10th.",
+    "I want to test drive between May 1st and May 20th.",
+    
+    # Date Validation (Impossible Dates)
+    "Let's do November 31st at 10 AM.",
+    "Can I come in on February 29th at 1 PM?",
+    
+    # Compound / Complex Intents
+    "Can I come in next Tuesday or Wednesday at 4?",
+    "Can we do 2 PM tomorrow? Also, what is your absolute lowest cash price?",
+    "Actually, I'd rather look at the 2021 Honda Civic you have instead of the Ford. Are you free Friday at 5?",
+    
+    # Vague / Low Confidence
+    "I might want to come look at it sometime soon.",
+    "Yeah, maybe.",
+    
+    # Relative Logic
+    "I'm busy this week. What do you have for next Monday or Tuesday morning?",
+    
+    # Frustrated Human (Sentiment Escalation)
+    "Stop asking me about the morning. I already told you I work until 5. Is there a real person I can talk to?"
+]
 
 VEHICLE_OPTIONS = {
     "Economy / Compact": [
@@ -139,12 +162,11 @@ DEALERSHIP_NAMES = [
 ]
 
 CITIES = [
-    "Toronto", "Ottawa", "Vancouver", "Calgary", "Edmonton",
-    "Montreal", "Winnipeg", "Halifax", "Regina", "Saskatoon"
+    "Toronto", "Ottawa", "Mississauga", "Brampton", "Hamilton", "London", "Markham", "Vaughan", "Kitchener", "Windsor"
 ]
 
 PROVINCES = [
-    "ON", "BC", "AB", "QC", "MB", "NS", "SK"
+    "ON"
 ]
 
 # utility function to generate unique IDs with a prefix
@@ -204,97 +226,20 @@ def generate_vehicle():
         ])
     }
 
-# function to generate random notes for the lead, with a mix of normal questions/comments and synthetic PII
-# so we can test sanitizing it
-def generate_notes(fname, lname, email, phone):
-    normal_notes = [
-        "Hi, I'm just checking if this vehicle is still available.",
-        "Can you tell me what financing options are available for this car?",
-        "I'm considering trading in my current vehicle — can you estimate its value toward this one?",
-        "I'd like to schedule a test drive for this car sometime this week.",
-        "I'm comparing this model with a few others — can you share more details?",
-        "Can you provide the full maintenance history for this vehicle?",
-        "Has this specific vehicle ever been in an accident?",
-        "What would be the total out-the-door price for this car?",
-        "Is the manufacturer warranty still active on this vehicle?",
-        "What would monthly payments look like for this car?",
-        "Do you have additional interior photos or a video walkthrough of this vehicle?",
-        "Do you offer delivery for this vehicle? I'm not located nearby.",
-        "Is the price on this listing negotiable?",
-        "What color options are available for this model?",
-        "Does this vehicle support Apple CarPlay or Android Auto?",
-        "Are winter tires included with this car?",
-        "Do you accept cryptocurrency for purchasing this vehicle?",
-        "My credit isn't perfect — can I still get approved for this car?",
-        "Do you offer extended warranty packages for this vehicle?",
-        "Can I put down a deposit to hold this car?",
-        "Do you know anything about the previous owner of this vehicle?",
-        "Is this vehicle capable of towing a small trailer?",
-        "Do you know what insurance might cost for this model?",
-        "Can I bring my mechanic to inspect this vehicle?",
-        "I'm looking for something safe for my family — how does this model rate?",
-        "Do you offer student or military discounts on this vehicle?",
-        "I'm upgrading from my current car — would this be a good fit?",
-        "What's the difference between the hybrid and gas versions of this model?",
-        "Does this vehicle come with remote start?",
-        "I'm hoping to buy quickly — can we prepare the paperwork for this car ahead of time?",
-    ]
-
-    # synthetic PII 
-    synthetic_pii = [
-        f"My other email is test.user{random.randint(10,99)}@example.com if you need to send more details about this car.",
-        f"You can call me back at 555-{random.randint(100,999)}-{random.randint(1000,9999)} about this vehicle.",
-        f"My temporary address is {random.randint(10,999)} Maple Street if you need it for the quote.",
-        f"I might register the car under my partner's name, Alex Johnson — is that okay for this vehicle?",
-        f"My trade-in VIN is 1HGCM82633A{random.randint(100000,999999)} — can you estimate its value toward this car?",
-        f"My driver's license number is D{random.randint(100,999)}-{random.randint(100,999)}-{random.randint(100,999)} if needed for the test drive.",
-        f"My plate number is ABCD {random.randint(100,999)} if you need it for insurance on this vehicle.",
-        f"Please send the paperwork for this car to temp.email{random.randint(1,9)}@mailinator.com.",
-    ]
-
-    # lead-specific PII
-    self_pii_notes = [
-        f"Hi, it's {fname} {lname}. I'm following up about this vehicle.",
-        f"You can email me at {email} with more details about this car.",
-        f"My phone number is {phone} if you need to reach me about this vehicle.",
-        f"Hey, this is {fname}. Can someone call me back about this car?",
-        f"I prefer texts — {phone} is the best number if you have updates on this vehicle.",
-        f"Please send the full quote for this car to {email}.",
-        f"I'm {fname} {lname}, just checking on the status of my inquiry about this vehicle.",
-        f"Can you confirm the appointment time for viewing this car? You can reach me at {phone}.",
-        f"Feel free to send photos or documents for this vehicle to {email}.",
-    ]
-
-    pii_pool = synthetic_pii + self_pii_notes
-    weighted_pool = []
-
-    # number of entries to generate for each category
-    total = len(normal_notes)
-
-    normal_count = int(total * (1 - PII_RATIO))
-    pii_count = int(total * PII_RATIO)
-
-    # add normal-only notes
-    weighted_pool.extend(random.sample(normal_notes, normal_count))
-
-    # add normal+PII notes
-    for note in random.sample(normal_notes, pii_count):
-        weighted_pool.append(note + " " + random.choice(pii_pool))
-
-    # fallback if ratio is weird (eg, 0 or 1)
-    if not weighted_pool:
-        weighted_pool.append(random.choice(normal_notes))
-
-    return random.choice(weighted_pool)
+# function to generate notes for the lead, focusing on edge cases
+def generate_notes(custom_note=None):
+    if custom_note:
+        return custom_note
+    return random.choice(EDGE_CASES)
 
 # function to generate random lead 
-def generate_lead():
+def generate_lead(custom_note=None):
     lead_id = new_id("lead")
     fname = random.choice(["John", "Alice", "Maria", "David"])
     lname = random.choice(["Doe", "Smith", "Lee", "Patel"])
-    email = f"{fname.lower()}.{lname.lower()}@example.com"
+    email = USER_EMAIL if USER_EMAIL else f"{fname.lower()}.{lname.lower()}@example.com"
     phone = f"555-{random.randint(100,999)}-{random.randint(1000,9999)}"
-    notes = generate_notes(fname, lname, email, phone)
+    notes = generate_notes(custom_note)
     
     return {
         "id": lead_id,
@@ -317,19 +262,32 @@ def publish_to_service_bus(payload):
         sender.send_messages(message)
 
     print(f"[SB] Published message for lead: {payload['lead']['id']}")
+    print(f"     Notes Sent: '{payload['lead']['notes']}'\n")
 
-# main worker function to simulate lead generation and publishing to service bus at regular intervals
-def simulate_worker():
-    print("Starting lead simulation worker...")
-    print(f"Interval: {INTERVAL_SECONDS} seconds\n")
+# main interactive worker function
+def run_interactive():
+    print("==================================================")
+    print("  Lead Intake Simulator")
+    print("==================================================")
+    print("- Press [ENTER] to send a message")
+    print("- Type a custom message to send a specific scenario")
+    print("- Type 'q' to quit")
+    print("==================================================\n")
 
     while True:
         try:
+            user_input = input("Lead notes (or Enter for random): ").strip()
+            
+            if user_input.lower() == 'q':
+                print("Exiting...")
+                break
+                
+            custom_note = user_input if user_input else None
 
             # generate lead
-            lead = generate_lead()
+            lead = generate_lead(custom_note)
             
-            # generate vehicle + dealership (dealership depends on vehicle make)
+            # generate vehicle + dealership
             vehicle = generate_vehicle()
             dealership = generate_dealership(vehicle["make"])
 
@@ -345,12 +303,8 @@ def simulate_worker():
             }
             publish_to_service_bus(payload)
 
-
         except Exception as e:
             print(f"[ERROR] {e}")
 
-        time.sleep(INTERVAL_SECONDS)
-
-
 if __name__ == "__main__":
-    simulate_worker()
+    run_interactive()

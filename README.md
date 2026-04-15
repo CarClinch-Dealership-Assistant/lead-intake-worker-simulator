@@ -93,14 +93,10 @@ CONFIG_PATH=/Users/alice/projects/lead-intake-worker-simulator/config.json
 ```
 
 ### **`SERVICE_BUS_CONNECTION_STRING`**
-The included connection string is the publicly available one for the emulator. No changes need to be made.
+The included connection string is the publicly available one for the emulator. No changes need to be made unless you are using a live one.
 
-### **`INTERVAL`**
-Controls how often the worker publishes new leads:
-
-```
-INTERVAL=10
-```
+### **`USER_EMAIL`**
+Set this to your real email you want to receive emails at.
 
 ---
 
@@ -131,13 +127,16 @@ py worker.py
 You should see:
 
 ```
-Starting lead simulation worker...
-Interval: 10 seconds
+==================================================
+  Lead Intake Simulator
+==================================================
+- Press [ENTER] to send a message
+- Type a custom message to send a specific scenario
+- Type 'q' to quit
+==================================================
 
-[SB] Published message for lead: lead_ab12cd
+Lead notes (or Enter for random): 
 ```
-
-The worker will continue publishing new leads every `INTERVAL` seconds.
 
 ---
 
