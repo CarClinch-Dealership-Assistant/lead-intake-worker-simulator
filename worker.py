@@ -1,260 +1,168 @@
 import json
 import uuid
 import random
-from datetime import datetime
-import psycopg2
-from azure.servicebus import ServiceBusClient, ServiceBusMessage
 import os
+import sys
+from datetime import datetime, timezone
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
+from azure.cosmos import CosmosClient, exceptions
 from dotenv import load_dotenv
 
 # load environment variables from .env file
 load_dotenv()
 
-# for local development, we use the service bus emulator connection string
-
-SERVICE_BUS_CONNECTION_STR = os.getenv("SERVICE_BUS_CONNECTION_STRING")
-DEALER_EMAIL = os.getenv("DEALER_EMAIL")
-USER_EMAIL = os.getenv("USER_EMAIL")
+# Service Bus
+SERVICE_BUS_CONNECTION_STR = os.getenv("SERVICE_BUS_CONNECTION_STR")
 QUEUE_NAME = "leads"
 
+# Cosmos DB
+ENDPOINT = os.getenv("COSMOS_ENDPOINT")
+KEY = os.getenv("COSMOS_KEY")
+COSMOS_DB_NAME = os.getenv("COSMOS_DB_NAME", "CarClinchDB")
+
+# initialize Cosmos Client
+try:
+    cosmos_client = CosmosClient(ENDPOINT, KEY, request_timeout=60)
+    db = cosmos_client.get_database_client(COSMOS_DB_NAME)
+    vehicle_container = db.get_container_client("vehicles")
+    dealer_container = db.get_container_client("dealerships")
+    lead_container = db.get_container_client("leads")
+    conversation_container = db.get_container_client("conversations") # ADDED
+except Exception as e:
+    print(f"[WARNING] Failed to initialize Cosmos DB client. Check connection endpoint and key. Error: {e}")
+    sys.exit(1)
+
 EDGE_CASES = [
-    # Time Edge Cases (Exact vs. Fuzzy vs. Invalid)
     "I'd like to test drive it tomorrow at 4:30 PM.",
     "I can swing by around 2 on Friday.",
     "Are you free tomorrow morning?",
     "I'll be there between 3 and 5 PM on April 20th.",
-    
-    # The "Max 7 Dates" Limit
     "What do you have open sometime this month?",
     "I'm out of town, but I can come in anytime after May 10th.",
     "I want to test drive between May 1st and May 20th.",
-    
-    # Date Validation (Impossible Dates)
     "Let's do November 31st at 10 AM.",
     "Can I come in on February 29th at 1 PM?",
-    
-    # Compound / Complex Intents
     "Can I come in next Tuesday or Wednesday at 4?",
     "Can we do 2 PM tomorrow? Also, what is your absolute lowest cash price?",
     "Actually, I'd rather look at the 2021 Honda Civic you have instead of the Ford. Are you free Friday at 5?",
-    
-    # Vague / Low Confidence
     "I might want to come look at it sometime soon.",
     "Yeah, maybe.",
-    
-    # Relative Logic
     "I'm busy this week. What do you have for next Monday or Tuesday morning?",
-    
-    # Frustrated Human (Sentiment Escalation)
-    "Stop asking me about the morning. I already told you I work until 5. Is there a real person I can talk to?"
+    "Stop asking me about the morning. I already told you I work until 5. Is there a real person I can talk to?",
+    "Is this car still available?",
+    "Does this vehicle come with Apple CarPlay and heated seats?",
+    "Is this a good car for a student budget?",
+    "Is this car good on gas? I have a long commute.",
+    "Is this car good for rural driving in the snow?",
+    "What kind of interest rate can I get if my credit score is around 680?",
+    "I want to trade in my 2016 Honda Accord. How much will you give me for it?",
+    "I know the listed price is $22,000, but would you take $19,500 cash today?",
+    "What is your absolute lowest out-the-door price?",
+    "I actually want to look at a Toyota RAV4. Do you have any?",
+    "What are your hours this weekend?",
+    "Can I just drop by after I get off work around 6?",
+    "I want to see it, but I need to check my schedule first.",
+    "Does it have a backup camera? If so, I'd like to schedule a test drive for Saturday at 11 AM.",
+    "Is it an automatic? Also, are you free next Thursday afternoon to show it to me?"
 ]
 
-VEHICLE_OPTIONS = {
-    "Economy / Compact": [
-        ("Honda", "Fit", "LX"),
-        ("Toyota", "Corolla", "LE"),
-        ("Hyundai", "Elantra", "Preferred"),
-        ("Kia", "Forte", "EX"),
-        ("Mazda", "Mazda3", "Sport"),
-        ("Volkswagen", "Golf", "Trendline"),
-        ("Ford", "Focus", "SE"),
-        ("Nissan", "Sentra", "SV"),
-    ],
-
-    "Sedans": [
-        ("Honda", "Accord", "Touring"),
-        ("Toyota", "Camry", "XSE"),
-        ("Nissan", "Altima", "SV"),
-        ("Hyundai", "Sonata", "Hybrid"),
-        ("Volkswagen", "Jetta", "Highline"),
-        ("Subaru", "Legacy", "Limited"),
-        ("Mazda", "Mazda6", "GS"),
-        ("Kia", "Stinger", "GT-Line"),
-    ],
-
-    "SUVs / Crossovers": [
-        ("Toyota", "RAV4", "XLE"),
-        ("Honda", "CR-V", "EX-L"),
-        ("Mazda", "CX-5", "Signature"),
-        ("Hyundai", "Tucson", "Preferred"),
-        ("Ford", "Escape", "Titanium"),
-        ("Subaru", "Forester", "Touring"),
-        ("Nissan", "Rogue", "SL"),
-        ("Chevrolet", "Equinox", "LT"),
-    ],
-
-    "Pickup Trucks": [
-        ("Ford", "F-150", "XLT"),
-        ("RAM", "1500", "Big Horn"),
-        ("Chevrolet", "Silverado", "LTZ"),
-        ("Toyota", "Tacoma", "TRD Sport"),
-        ("GMC", "Sierra", "Elevation"),
-        ("Nissan", "Frontier", "PRO-4X"),
-        ("Ford", "Ranger", "Lariat"),
-        ("Honda", "Ridgeline", "Black Edition"),
-    ],
-
-    "EVs / Hybrids": [
-        ("Tesla", "Model 3", "Long Range"),
-        ("Nissan", "Leaf", "SV"),
-        ("Hyundai", "Ioniq 5", "Preferred AWD"),
-        ("Toyota", "Prius Prime", "Upgrade"),
-        ("Ford", "Mustang Mach-E", "Premium"),
-        ("Kia", "EV6", "Wind AWD"),
-        ("Volkswagen", "ID.4", "Pro"),
-        ("Chevrolet", "Bolt", "Premier"),
-    ],
-
-    "Luxury": [
-        ("BMW", "330i", "xDrive"),
-        ("Mercedes-Benz", "C300", "4MATIC"),
-        ("Audi", "Q5", "Technik"),
-        ("Lexus", "RX 350", "Luxury"),
-        ("Volvo", "XC90", "Inscription"),
-        ("Acura", "RDX", "A-Spec"),
-        ("Infiniti", "QX50", "Sensory"),
-        ("Genesis", "GV70", "Advanced"),
-    ],
-
-    "Sports / Performance": [
-        ("Ford", "Mustang", "GT"),
-        ("Subaru", "WRX", "STI"),
-        ("Chevrolet", "Camaro", "SS"),
-        ("Dodge", "Challenger", "R/T"),
-        ("Toyota", "GR86", "Premium"),
-        ("Nissan", "370Z", "Sport"),
-        ("BMW", "M2", "Competition"),
-        ("Porsche", "718 Cayman", "Base"),
-    ],
-
-    "Budget / Older Vehicles": [
-        ("Honda", "Civic", "LX"),
-        ("Toyota", "Camry", "LE"),
-        ("Ford", "Escape", "SE"),
-        ("Hyundai", "Santa Fe", "GLS"),
-        ("Mazda", "Mazda6", "GS"),
-        ("Chevrolet", "Impala", "LT"),
-        ("Nissan", "Altima", "S"),
-        ("Kia", "Rio", "LX"),
-    ],
-
-    "High-End / Aspirational": [
-        ("Porsche", "Macan", "S"),
-        ("BMW", "X5", "xDrive40i"),
-        ("Mercedes-Benz", "GLE", "450"),
-        ("Land Rover", "Range Rover Velar", "R-Dynamic"),
-        ("Tesla", "Model S", "Plaid"),
-        ("Audi", "A7", "Prestige"),
-        ("Lexus", "LS 500", "Executive"),
-        ("Maserati", "Levante", "GranSport"),
-    ],
-}
-
-DEALERSHIP_NAMES = [
-    "AutoNation {city}",
-    "{make} of {city}",
-    "{city} Auto Mall",
-    "{province} Motor Group",
-    "{make} Centre {city}",
-    "{city} Premium Autos",
-    "{make} & More",
-    "{city} Car House",
-    "{province} Auto Plaza",
-    "{make} Direct {city}",
-]
-
-CITIES = [
-    "Toronto", "Ottawa", "Mississauga", "Brampton", "Hamilton", "London", "Markham", "Vaughan", "Kitchener", "Windsor"
-]
-
-PROVINCES = [
-    "ON"
-]
-
-# utility function to generate unique IDs with a prefix
 def new_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
-# function to generate random dealership based on the make of the vehicle and random city/province
-def generate_dealership(make):
-    dealer_id = new_id("dealer")
-    city = random.choice(CITIES)
-    province = random.choice(PROVINCES)
+def get_live_vehicle_and_dealership():
+    try:
+        vehicles = list(vehicle_container.query_items(
+            query="SELECT TOP 100 * FROM c",
+            enable_cross_partition_query=True
+        ))
+        
+        if not vehicles:
+            raise Exception("No vehicles found in the database!")
+            
+        vehicle = random.choice(vehicles)
+        dealer_id = vehicle.get("dealerId")
+        
+        if not dealer_id:
+            raise Exception(f"Vehicle {vehicle.get('id')} has no associated dealerId!")
 
-    name_template = random.choice(DEALERSHIP_NAMES)
-    dealership_name = name_template.format(make=make, city=city, province=province)
+        dealership = dealer_container.read_item(item=dealer_id, partition_key=dealer_id)
+        return vehicle, dealership
+        
+    except exceptions.CosmosResourceNotFoundError:
+        raise Exception("Dealership or Vehicle not found in database.")
+    except Exception as e:
+        raise Exception(f"Database query failed: {e}")
 
-    return {
-        "id": dealer_id,
-        "name": dealership_name,
-        "email": DEALER_EMAIL,
-        "phone": f"555-{random.randint(100,999)}-{random.randint(1000,9999)}",
-        "address1": f"{random.randint(10,999)} Main St",
-        "address2": "",
-        "city": city,
-        "province": province,
-        "postal_code": f"{random.choice('ABCEGHJ')}{random.randint(1,9)}{random.choice('ABCEGHJ')} {random.randint(1,9)}{random.choice('ABCEGHJ')}{random.randint(1,9)}"
-    }
-
-# function to generate random vehicle based on the VEHICLE_OPTIONS
-def generate_vehicle():
-    # pick a random category, then a random vehicle from that category
-    category = random.choice(list(VEHICLE_OPTIONS.keys()))
-    make, model, trim = random.choice(VEHICLE_OPTIONS[category])
-    
-    year = random.randint(2000, 2026)
-
-    return {
-        "id": new_id("vehicle"),
-        "status": random.choice([0, 1]),  # new/used
-        "year": year,
-        "make": make,
-        "model": model,
-        "trim": trim,
-        "mileage": f"{random.randint(20_000, 250_000)} km",
-        "transmission": random.choice(["Automatic", "Manual", "CVT"]),
-        "comments": random.choice([
-            "",
-            "",
-            "",
-            "Clean CarFax, one owner.",
-            "Dealer maintained.",
-            "Low mileage for the year.",
-            "Certified pre-owned.",
-            "Excellent condition.",
-            "Minor cosmetic wear.",
-            "Fully loaded with premium package.",
-            "Recently serviced and detailed.",
-        ])
-    }
-
-# function to generate notes for the lead, focusing on edge cases
 def generate_notes(custom_note=None):
     if custom_note:
         return custom_note
     return random.choice(EDGE_CASES)
 
-# function to generate random lead 
-def generate_lead(custom_note=None):
-    lead_id = new_id("lead")
-    fname = random.choice(["John", "Alice", "Maria", "David"])
-    lname = random.choice(["Doe", "Smith", "Lee", "Patel"])
-    email = USER_EMAIL if USER_EMAIL else f"{fname.lower()}.{lname.lower()}@example.com"
-    phone = f"555-{random.randint(100,999)}-{random.randint(1000,9999)}"
-    notes = generate_notes(custom_note)
+def process_lead(fname, lname, email, phone, custom_note=None):
+    note_text = generate_notes(custom_note)
+    current_time = datetime.now(timezone.utc).isoformat()
     
-    return {
-        "id": lead_id,
-        "fname": fname,
-        "lname": lname,
-        "email": email,
-        "phone": phone,
-        "status": 0,
-        "notes": notes,
-        "timestamp": datetime.now().isoformat(),
+    new_note = {
+        "text": note_text,
+        "timestamp": current_time
     }
+    
+    try:
+        query = "SELECT * FROM leads l WHERE l.email = @email"
+        parameters = [{"name": "@email", "value": email.lower()}]
+        existing_leads = list(lead_container.query_items(
+            query=query,
+            parameters=parameters,
+            enable_cross_partition_query=True
+        ))
+        
+        if existing_leads:
+            lead = existing_leads[0]
+            if "notes" not in lead or not isinstance(lead["notes"], list):
+                lead["notes"] = []
+                
+            lead["notes"].append(new_note)
+            lead_container.replace_item(item=lead['id'], body=lead) 
+            print(f"\n[*] DB WRITE: Updated existing lead ({email})")
+            return lead
+        else:
+            lead = {
+                "id": new_id("lead"),
+                "fname": fname,
+                "lname": lname,
+                "email": email.lower(),
+                "phone": phone,
+                "status": 0,
+                "notes": [new_note],
+                "timestamp": current_time,
+            }
+            lead_container.create_item(body=lead) 
+            print(f"\n[*] DB WRITE: Created new lead ({email})")
+            return lead
+            
+    except Exception as e:
+        raise Exception(f"Failed to process lead in Cosmos DB: {e}")
 
-# function to publish the generated lead + vehicle + dealership to the service bus
+def create_conversation(lead_id, vehicle_id, dealer_id):
+    """Creates a new conversation document in Cosmos DB to tie the records together."""
+    try:
+        conv_id = new_id("conv")
+        conv_doc = {
+            "id": conv_id,
+            "leadId": lead_id,
+            "vehicleId": vehicle_id,
+            "dealerId": dealer_id,
+            "status": 1,  # 1 = active
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        conversation_container.create_item(body=conv_doc)
+        print(f"[*] DB WRITE: Created conversation ({conv_id})")
+        return conv_doc
+        
+    except Exception as e:
+        raise Exception(f"Failed to create conversation in Cosmos DB: {e}")
+
 def publish_to_service_bus(payload):
     client = ServiceBusClient.from_connection_string(conn_str=SERVICE_BUS_CONNECTION_STR)
     sender = client.get_queue_sender(queue_name=QUEUE_NAME)
@@ -263,18 +171,30 @@ def publish_to_service_bus(payload):
         message = ServiceBusMessage(json.dumps(payload))
         sender.send_messages(message)
 
-    print(f"[SB] Published message for lead: {payload['lead']['id']}")
-    print(f"     Notes Sent: '{payload['lead']['notes']}'\n")
+    print(f"[*] QUEUE: Published payload to Service Bus")
+    print(f"    - Lead ID: {payload['lead']['id']}")
+    print(f"    - Vehicle: {payload['vehicle'].get('year')} {payload['vehicle'].get('make')} {payload['vehicle'].get('model')}")
+    print(f"    - Note:    '{payload['lead']['notes']}'\n")
 
-# main interactive worker function
 def run_interactive():
     print("==================================================")
-    print("  Lead Intake Simulator")
+    print("  Lead Intake Simulator (Live DB Connection)")
     print("==================================================")
-    print("- Press [ENTER] to send a message")
+    
+    print("Enter Lead Information (Press ENTER to use random defaults):")
+    def_fname = random.choice(["John", "Alice", "Maria", "David"])
+    def_lname = random.choice(["Doe", "Smith", "Lee", "Patel"])
+    
+    fname = input(f"First Name [{def_fname}]: ").strip() or def_fname
+    lname = input(f"Last Name [{def_lname}]: ").strip() or def_lname
+    email = input(f"Email [{fname.lower()}.{lname.lower()}@example.com]: ").strip() or f"{fname.lower()}.{lname.lower()}@example.com"
+    phone = input(f"Phone [555-000-0000]: ").strip() or f"555-{random.randint(100,999)}-{random.randint(1000,9999)}"
+
+    print("\n--------------------------------------------------")
+    print("- Press [ENTER] to send a random edge case")
     print("- Type a custom message to send a specific scenario")
     print("- Type 'q' to quit")
-    print("==================================================\n")
+    print("--------------------------------------------------\n")
 
     while True:
         try:
@@ -286,23 +206,53 @@ def run_interactive():
                 
             custom_note = user_input if user_input else None
 
-            # generate lead
-            lead = generate_lead(custom_note)
+            # fetch live vehicle and dealership from Cosmos DB
+            vehicle, dealership = get_live_vehicle_and_dealership()
             
-            # generate vehicle + dealership
-            vehicle = generate_vehicle()
-            dealership = generate_dealership(vehicle["make"])
+            # process lead (create or update in DB)
+            lead = process_lead(fname, lname, email, phone, custom_note)
+            
+            # create conversation document to tie them together
+            conversation = create_conversation(lead["id"], vehicle["id"], dealership["id"])
 
-            # generate conversation ID
-            conversation_id = new_id("conv")
-            
-            # publish to service bus
+            # assemble payload
             payload = {
-                "lead": lead,
-                "vehicle": vehicle,
-                "dealership": dealership,
-                "conversationId": conversation_id
+                "lead": {
+                    "id": lead['id'],
+                    "fname": lead['fname'],
+                    "lname": lead['lname'],
+                    "email": lead['email'],
+                    "phone": lead['phone'],
+                    "status": lead['status'],
+                    "notes": lead.get('notes', [])[-1]['text'] if lead.get('notes') else "",
+                    "timestamp": lead['timestamp']
+                },
+                "vehicle": {
+                    "id": vehicle['id'],
+                    "status": vehicle.get('status'),
+                    "year": vehicle.get('year'),
+                    "make": vehicle.get('make'),
+                    "model": vehicle.get('model'),
+                    "trim": vehicle.get('trim'),
+                    "mileage": vehicle.get('mileage'),
+                    "transmission": vehicle.get('transmission'),
+                    "comments": vehicle.get('comments')
+                },
+                "dealership": {
+                    "id": dealership['id'],
+                    "name": dealership.get('name'),
+                    "email": dealership.get('email'),
+                    "phone": dealership.get('phone'),
+                    "address1": dealership.get('address1'),
+                    "address2": dealership.get('address2'),
+                    "city": dealership.get('city'),
+                    "province": dealership.get('province'),
+                    "postal_code": dealership.get('postal_code')
+                },
+                "conversationId": conversation['id']
             }
+            
+            # publish
             publish_to_service_bus(payload)
 
         except Exception as e:

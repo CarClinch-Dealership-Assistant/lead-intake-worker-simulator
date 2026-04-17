@@ -1,6 +1,6 @@
 # Lead Intake Worker Simulator
 
-> ❗**Important**❗: This worker is just to test sending initial messages. Since the data is all mocked, it will not properly be able to persist or rehydrate data across conversations.
+> **Note**: This worker connects directly to your active Cosmos DB to fetch live vehicles and their exact dealerships. It allows you to test end-to-end conversation flows, edge cases, and AI responses interactively.
 
 ## Example Message
 
@@ -13,8 +13,7 @@
         "email": "alice.smith@example.com",
         "phone": "555-307-8655",
         "status": 0,
-        "wants_email": true,
-        "notes": "My credit isn't perfect — can I still get approved for this car?",
+        "notes": "Let's do November 31st at 10 AM.",
         "timestamp": "2026-02-16T10:30:54.198014"
     },
     "vehicle": {
@@ -36,124 +35,138 @@
         "address1": "376 Main St",
         "address2": "",
         "city": "Montreal",
-        "province": "NS",
+        "province": "QC",
         "postal_code": "B9B 8H3"
     },
     "conversationId": "conv_66e8be1f55"
 }
 ```
 
-## Set up `.venv`
+---
 
-```bash
-python -m venv .venv
-```
-
-This creates a folder named `.venv` containing your isolated Python environment.
-
-**macOS / Linux**
-
-```bash
-source .venv/bin/activate
-```
-
-**Windows PowerShell**
-
-```powershell
-.venv\Scripts\Activate
-```
-
-You should now see `(.venv)` at the start of your terminal prompt.
-With the environment activated, install everything from `requirements.txt`:
-
-```bash
-pip install -r requirements.txt
-```
-
-Your environment is now ready to run:
-
-- `python worker.py`  
-- `python peek.py`  
-- `python purge.py`
-
-## Set up your `.env` file
+## Env Variables
 
 Copy the provided template:
 
 ```bash
-cp .env.copy .env
+# for live Azure infra
+cp .env.example.azure .env
+# OR for local infra
+cp .env.example.local .env
 ```
 
-Then open `.env` and update the following values:
+### Azure Variables
+If running with live Azure infra, open `.env` and update the following values:
 
-### **`CONFIG_PATH`**
-Set this to the **absolute path** of your `config.json` file.  
-Example:
-
+#### **`SERVICE_BUS_CONNECTION_STRING`**
+In the /infra/terraform directory of `carclinch-dealership-assistant`, after the Terraform infrastructure is deployed, run:
 ```
-CONFIG_PATH=/Users/alice/projects/lead-intake-worker-simulator/config.json
+terraform output servicebus_connection_string
 ```
 
-### **`SERVICE_BUS_CONNECTION_STRING`**
-The included connection string is the publicly available one for the emulator. No changes need to be made unless you are using a live one.
+#### **`COSMOS_ENDPOINT` & `COSMOS_KEY`**
+In the /infra/terraform directory of `carclinch-dealership-assistant`, after the Terraform infrastructure is deployed, run:
+```
+terraform output cosmos_endpoint
+terraform output cosmos_primary_key
+```
 
-### **`USER_EMAIL`**
-Set this to your real email you want to receive emails at.
+### Local Variables
+If running with local infra, update the following values:
+#### **`OPENAI_MODEL_NAME`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`**
+To find the OPENAI env variables, make sure to create the Foundry resource, deploy the gpt-4.1-mini model, and find the values in `Foundry` -> `Playgrounds` -> `View Code` -> Scroll down and copy paste the key and URL values.
 
+#### **`GMAIL_USER`, `GMAIL_APP_PASSWORD`**
+Create an app password for your personal Gmail inbox by going to `Manage your Google Account` -> `Security & sign-in` -> Search `App passwords` -> Create a new one. OR use the one I shared with the team before.
+
+The GMAIL values are your email address and that created app password with no spaces.
+
+#### **`AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE`**
+Your WiFi IPv4 address found by running:
+```
+ipconfigs
+```
 ---
 
-## Start the Service Bus Emulator
+## Local Setup (Docker)
 
-From the project root:
+This project is configured to spin up the entire pipeline for local testing. If you are using live Azure infra, **skip this step.** From the project root, run:
 
 ```bash
 docker compose up -d
 ```
 
 This launches:
+- SQL Server & Azure Service Bus Emulator
+- Azurite & Cosmos DB Emulator
+- The **Email Processing Service** (listens for messages)
 
-- SQL Server (required by the emulator)
-- Azure Service Bus Emulator
-- Loads your `config.json` (including the `leads` queue)
+To seed the emulated Cosmos DB, run:
+```
+py init.py
+```
 
 ---
 
-## Run the worker locally
+## Run the Worker
 
-With the emulator running, start the worker:
 
 ```bash
+python -m venv .venv
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+```
+
+**Windows PowerShell**
+```powershell
+.venv\Scripts\Activate
+```
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+```
 py worker.py
 ```
 
-You should see:
+```text
+==================================================
+  Lead Intake Simulator (Live DB Connection)
+==================================================
+Enter Lead Information (Press ENTER to use random defaults):
+First Name [Alice]: 
+Last Name [Smith]: 
+Email [alice.smith@example.com]: 
+Phone [555-000-0000]: 
 
-```
-==================================================
-  Lead Intake Simulator
-==================================================
-- Press [ENTER] to send a message
+--------------------------------------------------
+- Press [ENTER] to send a random edge case
 - Type a custom message to send a specific scenario
 - Type 'q' to quit
-==================================================
+--------------------------------------------------
 
 Lead notes (or Enter for random): 
 ```
 
+Whenever you submit a note, the worker will pull a random vehicle from Cosmos DB, find its matching dealership, and push the payload to the Service Bus.
+
 ---
 
-## Peek inside the queue (optional)
+## Utilities
 
-Use the included `peek.py` script to inspect messages without consuming them:
-
+### Peek inside the queue (optional)
+Use the included `peek.py` script to inspect messages currently sitting in the Service Bus without consuming them:
 ```bash
-py peek.py
+python peek.py
 ```
 
-## Purge the queue (optional)
-
-Use the included `purge.py` script to purge all messages in the queue:
-
+### Purge the queue (optional)
+Use the included `purge.py` script to instantly clear all stuck/pending messages in the queue:
 ```bash
-py purge.py
+python purge.py
 ```
